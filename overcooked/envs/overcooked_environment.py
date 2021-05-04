@@ -155,11 +155,15 @@ class OvercookedEnvironment(gym.Env):
         self.termination_info = ""
         self.successful = False
 
+        # State for network
+        self.state = np.zeros(31)
+
         # Load world & distances.
         self.load_level(
                 level=self.arglist.level,
                 num_agents=self.arglist.num_agents)
         self.all_subtasks = self.run_recipes()
+        # Keep track of subtask completion
         self.subtask_status = np.zeros(len(self.all_subtasks))
         self.world.make_loc_to_gridsquare()
         self.world.make_reachability_graph()
@@ -252,20 +256,23 @@ class OvercookedEnvironment(gym.Env):
     def reward(self):
         reward = 0
         for idx, subtask in enumerate(self.all_subtasks):
+            # Check if subtask is complete
             if not self.subtask_status[idx]:
                 _, goal_obj = nav_utils.get_subtask_obj(subtask)
                 goal_obj_locs = self.world.get_all_object_locs(obj=goal_obj)
                 if isinstance(subtask, recipe.Deliver):
+                    # If task is delivery then give max reward
                     delivery_loc = list(filter(lambda o: o.name=='Delivery',\
                                      self.world.get_object_list()))[0].location
                     if goal_obj_locs:
                         if all([gol == delivery_loc for gol in goal_obj_locs]):
                             reward = 50
                 else:
+                    # for completion of any other subtasks give small rewards
                     if goal_obj_locs:
                         reward = 5
                         self.subtask_status[idx] = 1
-        print(reward)
+        print("Reward for step: {}".format(reward))
         return reward
 
     def print_agents(self):
