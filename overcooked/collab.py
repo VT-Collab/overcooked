@@ -3,6 +3,7 @@ from misc.game.game import Game
 import numpy as np
 import argparse
 import gym
+import overcooked
 
 
 def parse_arguments():
@@ -25,12 +26,13 @@ def parse_arguments():
 
 if __name__ == '__main__':
     arglist = parse_arguments()
-    env = gym.envs.make("gym_cooking:overcookedEnv-v0", arglist=arglist)
+    env = gym.envs.make("overcooked:overcookedEnv-v0", arglist=arglist)
     env.reset()
     # game = TestPlay(env.world, env.sim_agents, env)
     # game.on_execute()
-    for idx in range(10):
-        action = (0, 1)
+    actions = [3,3,3,1,2,2,2,1,3,3,3,3,2,2,2,2,2,2,2]
+    for idx in range(len(actions)):
+        action = actions[idx]
         new_obs, reward, done, info = env.step(action)
         # game.on_execute()
         if done:

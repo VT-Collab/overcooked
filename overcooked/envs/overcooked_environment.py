@@ -160,6 +160,7 @@ class OvercookedEnvironment(gym.Env):
                 level=self.arglist.level,
                 num_agents=self.arglist.num_agents)
         self.all_subtasks = self.run_recipes()
+        self.subtask_status = np.zeros(len(self.all_subtasks))
         self.world.make_loc_to_gridsquare()
         self.world.make_reachability_graph()
         self.cache_distances()
@@ -186,6 +187,10 @@ class OvercookedEnvironment(gym.Env):
         print("===============================")
         print("[environment.step] @ TIMESTEP {}".format(self.t))
         print("===============================")
+
+        # Only single agent action
+        NAV_ACTIONS = [(0, 1), (0, -1), (-1, 0), (1, 0)]
+        action = NAV_ACTIONS[action]
 
         # Get actions.
         for sim_agent in self.sim_agents:
@@ -245,7 +250,23 @@ class OvercookedEnvironment(gym.Env):
         return True
 
     def reward(self):
-        return 1 if self.successful else 0
+        reward = 0
+        for idx, subtask in enumerate(self.all_subtasks):
+            if not self.subtask_status[idx]:
+                _, goal_obj = nav_utils.get_subtask_obj(subtask)
+                goal_obj_locs = self.world.get_all_object_locs(obj=goal_obj)
+                if isinstance(subtask, recipe.Deliver):
+                    delivery_loc = list(filter(lambda o: o.name=='Delivery',\
+                                     self.world.get_object_list()))[0].location
+                    if goal_obj_locs:
+                        if all([gol == delivery_loc for gol in goal_obj_locs]):
+                            reward = 50
+                else:
+                    if goal_obj_locs:
+                        reward = 5
+                        self.subtask_status[idx] = 1
+        print(reward)
+        return reward
 
     def print_agents(self):
         for sim_agent in self.sim_agents:
