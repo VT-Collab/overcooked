@@ -1,1 +1,1 @@
-from gym_cooking.envs.overcooked_environment import OvercookedEnvironment
+from overcooked.envs.overcooked_environment import OvercookedEnvironment

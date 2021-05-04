@@ -1,0 +1,16 @@
+README.md
+setup.py
+gym_cooking.egg-info/PKG-INFO
+gym_cooking.egg-info/SOURCES.txt
+gym_cooking.egg-info/dependency_links.txt
+gym_cooking.egg-info/requires.txt
+gym_cooking.egg-info/top_level.txt
+overcooked/__init__.py
+overcooked/collab.py
+overcooked/main.py
+overcooked/envs/__init__.py
+overcooked/envs/overcooked_environment.py
+overcooked/recipe_planner/__init__.py
+overcooked/recipe_planner/recipe.py
+overcooked/recipe_planner/stripsworld.py
+overcooked/recipe_planner/utils.py
