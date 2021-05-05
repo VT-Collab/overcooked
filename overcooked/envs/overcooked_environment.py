@@ -22,7 +22,7 @@ import networkx as nx
 import numpy as np
 from itertools import combinations, permutations, product
 from collections import namedtuple
-
+import sys
 import gym
 from gym import error, spaces, utils
 from gym.utils import seeding
@@ -38,6 +38,23 @@ class OvercookedEnvironment(gym.Env):
         self.arglist = arglist
         self.t = 0
         # self.set_filename()
+        self.action_space = spaces.MultiDiscrete([4])
+        """
+        Considers a 7*4 gridworld with the following values for states:
+        Floor - 0
+        Counter - 1
+        Cutboard - 2
+        Delivery - 3
+        Plate - 4
+        Tomato - 5
+        Agent - 6
+        Last 3 states represent:
+        Location of tomato
+        Location of plate
+        State of tomato - 0/1 = Unchopped/Chopped
+        """ 
+        obs_space = [7 for x in range(28)] + [28, 28, 2]
+        self.observation_space = spaces.MultiDiscrete(obs_space)
 
         # For visualizing episode.
         self.rep = []
@@ -91,6 +108,7 @@ class OvercookedEnvironment(gym.Env):
     def load_level(self, level, num_agents):
         x = 0
         y = 0
+        idx = 0
         with open('utils/levels/{}.txt'.format(level), 'r') as file:
             # Mark the phases of reading.
             phase = 1
@@ -111,14 +129,28 @@ class OvercookedEnvironment(gym.Env):
                             counter.acquire(obj=obj)
                             self.world.insert(obj=counter)
                             self.world.insert(obj=obj)
+                            # only plate and tomato are part of state for now
+                            if rep == 'p':
+                                self.state[idx] = 4
+                            elif rep == 't':
+                                self.state[idx] = 5
+                                self.tomato_start = idx
+
                         # GridSquare, i.e. Floor, Counter, Cutboard, Delivery.
                         elif rep in RepToClass:
                             newobj = RepToClass[rep]((x, y))
+                            if newobj.name == "Counter":
+                                self.state[idx] = 1
+                            elif newobj.name == "Cutboard":
+                                self.state[idx] = 2
+                            elif newobj.name == "Delivery":
+                                self.state[idx] = 3
                             self.world.objects.setdefault(newobj.name, []).append(newobj)
                         else:
                             # Empty. Set a Floor tile.
                             f = Floor(location=(x, y))
                             self.world.objects.setdefault('Floor', []).append(f)
+                        idx += 1
                     y += 1
                 # Phase 2: Read in recipe list.
                 elif phase == 2:
@@ -133,12 +165,59 @@ class OvercookedEnvironment(gym.Env):
                                 id_color=COLORS[len(self.sim_agents)],
                                 location=(int(loc[0]), int(loc[1])))
                         self.sim_agents.append(sim_agent)
+                        idx = (int(loc[1])) * (x+1) + int(loc[0])
+                        self.state[idx] = 6
+                        
 
         self.distances = {}
         self.world.width = x+1
         self.world.height = y
         self.world.perimeter = 2*(self.world.width + self.world.height)
+        
+    # Get index of location in state vector
+    def get_state_idx(self, obj):
+        return obj.location[1] * self.world.width + obj.location[0]
+    
+    # Update the state based on current world
+    def update_state(self):
 
+        chopped = 0
+        tomato_loc = 0
+        plate_loc = 0
+
+        # Find out if tomatoes are chopped. Works only when not plated
+        for subtask in self.all_subtasks:
+            if isinstance(subtask, recipe.Chop):
+                _, goal_obj = nav_utils.get_subtask_obj(subtask)
+                goal_obj_locs = self.world.get_all_object_locs(obj=goal_obj)
+                if goal_obj_locs:
+                    chopped = 1
+
+        for obj in self.world.objects["Tomato"]:
+            if obj.location:
+                tomato_loc = get_state_idx(obj)
+        objs = []
+        for o in self.world.objects.values():
+            objs += o
+
+        for obj in objs:
+            idx = obj.location[1] * self.world.width + obj.location[0]
+            if obj.name == "Counter":
+                self.state[idx] = 1
+            elif obj.name == "Cutboard":
+                self.state[idx] = 2
+            elif obj.name == "Delivery":
+                self.state[idx] = 3
+            elif obj.name == "Plate":
+                self.state[idx] = 4
+            elif obj.name == "Plate-Tomato":
+                tomato_loc = obj.location[1] * self.world.width + obj.location[0]
+                plate_loc = obj.location[1] * self.world.width + obj.location[0]
+                chopped = 1
+                
+        self.state[28] = tomato_loc
+        self.state[29] = plate_loc
+        self.state[30] = chopped
 
     def reset(self):
         self.world = World(arglist=self.arglist)
@@ -157,6 +236,7 @@ class OvercookedEnvironment(gym.Env):
 
         # State for network
         self.state = np.zeros(31)
+        self.pick = False
 
         # Load world & distances.
         self.load_level(
@@ -180,7 +260,7 @@ class OvercookedEnvironment(gym.Env):
             if self.arglist.record:
                 self.game.save_image_obs(self.t)
 
-        return copy.copy(self)
+        return self.state
 
     def close(self):
         return
@@ -194,8 +274,10 @@ class OvercookedEnvironment(gym.Env):
 
         # Only single agent action
         NAV_ACTIONS = [(0, 1), (0, -1), (-1, 0), (1, 0)]
-        action = NAV_ACTIONS[action]
+        action = NAV_ACTIONS[action[0]]
 
+        sim_loc = self.sim_agents[0].location
+        sim_state_idx = sim_loc[1] * self.world.width + sim_loc[0]
         # Get actions.
         for sim_agent in self.sim_agents:
             sim_agent.action = action
@@ -207,12 +289,44 @@ class OvercookedEnvironment(gym.Env):
         # Execute.
         self.execute_navigation()
 
+        sim_loc = self.sim_agents[0].location
+        sim_state_new_idx = sim_loc[1] * self.world.width + sim_loc[0]
+        self.state[sim_state_idx] = 0
+        self.state[sim_state_new_idx] = 6
+
+        self.update_state()
+
+        # for obj in self.world.objects["Tomato"]:
+        #     if obj.location:
+        #         tomato_loc = obj.location[1] * self.world.width + obj.location[0]
+        # objs = []
+        # for o in self.world.objects.values():
+        #     objs += o
+        # for obj in objs:
+        #     idx = obj.location[1] * self.world.width + obj.location[0]
+        #     if obj.name == "Counter":
+        #         self.state[idx] = 1
+        #     elif obj.name == "Cutboard":
+        #         self.state[idx] = 2
+        #     elif obj.name == "Delivery":
+        #         self.state[idx] = 3
+        #     elif obj.name == "Plate":
+        #         self.state[idx] = 4
+        #     elif obj.name == "Plate-Tomato":
+        #         tomato_loc = obj.location[1] * self.world.width + obj.location[0]
+        #         plate_loc = obj.location[1] * self.world.width + obj.location[0]
+        #         chopped = 1
+
+        # self.state[28] = tomato_loc
+        # self.state[29] = plate_loc
+        # self.state[30] = chopped
+
         # Visualize.
         self.display()
         self.print_agents()
         if self.arglist.record:
             self.game.save_image_obs(self.t)
-
+        # print(self.state)
         # Get a plan-representation observation.
         new_obs = copy.copy(self)
         # Get an image observation
@@ -220,10 +334,10 @@ class OvercookedEnvironment(gym.Env):
 
         done = self.done()
         reward = self.reward()
-        info = {"t": self.t, "obs": new_obs,
+        info = {"t": self.t, "obs": self.state,
                 "image_obs": image_obs,
                 "done": done, "termination_info": self.termination_info}
-        return new_obs, reward, done, info
+        return self.state, reward, done, info
 
 
     def done(self):
@@ -266,12 +380,18 @@ class OvercookedEnvironment(gym.Env):
                                      self.world.get_object_list()))[0].location
                     if goal_obj_locs:
                         if all([gol == delivery_loc for gol in goal_obj_locs]):
-                            reward = 50
+                            reward = 150
                 else:
                     # for completion of any other subtasks give small rewards
                     if goal_obj_locs:
-                        reward = 5
+                        reward = 20
                         self.subtask_status[idx] = 1
+        if not self.tomato_start == self.state[28] and not self.pick:
+            reward = 20
+            self.pick = True
+
+        if reward == 0:
+            reward = -0.01
         print("Reward for step: {}".format(reward))
         return reward
 
@@ -280,6 +400,11 @@ class OvercookedEnvironment(gym.Env):
             sim_agent.print_status()
 
     def display(self):
+        # Print states for checking
+        state_print = np.copy(self.state)
+        state_print_map = state_print[:28].reshape((4,7))
+        print(state_print_map)
+
         self.update_display()
         print(str(self))
 
