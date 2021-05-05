@@ -61,7 +61,7 @@ if __name__ == '__main__':
     policy_kwargs = dict(activation_fn=nn.Tanh, net_arch=[200, 100, 50, 10, 5])
     # # env = gym.make(env_id, total=10, good=3)
     model = PPO('MlpPolicy', env, policy_kwargs=policy_kwargs, verbose=1)
-    model.learn(total_timesteps=30000)
+    model.learn(total_timesteps=300000)
 
     # actions = [3,3,3,1,2,2,2,1,3,3,3,3,2,2,2,2,2,2,2]
     # for idx in range(len(actions)):
